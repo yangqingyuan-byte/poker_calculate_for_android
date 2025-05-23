@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<game-mode-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 游戏模式配置，支持高刷新率 -->
+    <!-- 性能模式：最高优先级使用高刷新率 -->
+    <game-mode android:name="performance" />
+    
+    <!-- 标准模式：中等优先级 -->
+    <game-mode android:name="standard" />
+    
+    <!-- 省电模式：低刷新率 -->
+    <game-mode android:name="battery" />
+</game-mode-config> 
