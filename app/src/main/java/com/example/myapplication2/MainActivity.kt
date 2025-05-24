@@ -55,6 +55,7 @@ import android.view.Window
 import android.view.WindowManager
 import android.os.Build
 import android.util.Log
+import android.view.Display
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -66,9 +67,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 
 // 高刷新率配置和工具类
@@ -89,12 +90,14 @@ object HighRefreshRateUtil {
     
     // 简化的页面进入动画
     val EnterTransition = slideInHorizontally(
-        animationSpec = tween(durationMillis = 150) // 使用tween替代spring，降低CPU使用率
+        animationSpec = tween(durationMillis = 150), // 使用tween替代spring，降低CPU使用率
+        initialOffsetX = { fullWidth -> fullWidth / 2 } // 减少动画距离
     ) + FastFadeIn
     
     // 简化的页面退出动画
     val ExitTransition = slideOutHorizontally(
-        animationSpec = tween(durationMillis = 150) // 使用tween替代spring，降低CPU使用率
+        animationSpec = tween(durationMillis = 150), // 使用tween替代spring，降低CPU使用率
+        targetOffsetX = { fullWidth -> -fullWidth / 2 } // 减少动画距离
     ) + FastFadeOut
 }
 
@@ -120,105 +123,72 @@ class MainActivity : ComponentActivity() {
     
     // 配置窗口以支持高刷新率
     private fun configureWindowForHighRefreshRate() {
+        // 设置窗口属性以支持边缘到边缘显示
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        
+        // 将应用设置为全屏模式以提高性能
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+        
+        // 更新状态栏颜色为白色，与主题保持一致
+        @Suppress("DEPRECATION")
+        window.statusBarColor = Color.White.toArgb()
+        
+        // 设置状态栏图标为深色，以便在白色背景上更易见
+        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        windowInsetsController.isAppearanceLightStatusBars = true
+        
+        // 启用硬件加速
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        )
+        
         try {
-            Log.d("RefreshRate", "正在设置高刷新率支持...")
-            
-            // 设置窗口属性以支持边缘到边缘显示
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            
-            // 直接设置全屏标志，提升性能
-            @Suppress("DEPRECATION")
-            window.setFlags(
-                WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
-            )
-            
-            // 这个标志可以强制GPU渲染，提高性能
-            window.setFlags(
-                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
-                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-            )
-            
-            // 清晰度优化 - 关闭复杂动画
-            @Suppress("DEPRECATION")
-            window.setFlags(
-                WindowManager.LayoutParams.FLAG_DITHER,
-                WindowManager.LayoutParams.FLAG_DITHER
-            )
-            
-            // 设置刷新率
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                // Android 11+: 获取并尝试设置所有支持的刷新率
-                Log.d("RefreshRate", "使用Android 11+ API设置刷新率")
-                
-                // 直接尝试设置最高刷新率
-                window.attributes = window.attributes.apply {
-                    preferredRefreshRate = 120.0f // 尝试设置120Hz
-                }
-                
-                // 获取所有支持的模式并打印
-                val display = display
-                if (display != null) {
-                    val modes = display.supportedModes
-                    val currentMode = display.mode
-                    
-                    Log.d("RefreshRate", "当前模式: 刷新率=${currentMode.refreshRate}Hz, " +
-                          "分辨率=${currentMode.physicalWidth}x${currentMode.physicalHeight}")
-                    
-                    Log.d("RefreshRate", "支持的显示模式数: ${modes.size}")
-                    var bestMode = currentMode
-                    var maxRefreshRate = currentMode.refreshRate
-                    
-                    for (mode in modes) {
-                        val modeInfo = "模式: 刷新率=${mode.refreshRate}Hz, " +
-                                      "分辨率=${mode.physicalWidth}x${mode.physicalHeight}"
-                        Log.d("RefreshRate", modeInfo)
-                        
-                        if (mode.refreshRate > maxRefreshRate) {
-                            maxRefreshRate = mode.refreshRate
-                            bestMode = mode
-                        }
-                    }
-                    
-                    if (bestMode.modeId != currentMode.modeId) {
-                        Log.d("RefreshRate", "使用最佳模式: 刷新率=${bestMode.refreshRate}Hz")
-                        window.attributes = window.attributes.apply {
-                            preferredDisplayModeId = bestMode.modeId  // 设置首选显示模式
-                            preferredRefreshRate = bestMode.refreshRate  // 设置首选刷新率 
-                        }
-                    }
-                }
-            } else {
-                // Android 10及以下: 使用旧API设置刷新率
-                Log.d("RefreshRate", "使用旧API设置刷新率")
-                
-                @Suppress("DEPRECATION")
-                val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-                
-                // 以下是Android 10及更早版本的支持
-                @Suppress("DEPRECATION")
-                val displayRefreshRate = windowManager.defaultDisplay.refreshRate
-                Log.d("RefreshRate", "检测到的刷新率: ${displayRefreshRate}Hz")
-                
-                // 设置刷新率，优先尝试高刷新率，如果不支持则回退到检测到的刷新率
-                window.attributes.preferredRefreshRate = 
-                    if (displayRefreshRate > 60) displayRefreshRate else 60f
-            }
-            
             // Android 9.0+支持刘海屏优化
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 window.attributes.layoutInDisplayCutoutMode = 
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
             
-            // 再次应用GPU渲染标志
-            window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
+            // 关键优化：直接设置高刷新率
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val display = display
+                Log.d("RefreshRate", "开始设置高刷新率...")
                 
-            Log.d("RefreshRate", "高刷新率设置完成")
+                // 获取设备支持的最高刷新率
+                display?.supportedModes?.maxByOrNull { it.refreshRate }?.let { highestMode ->
+                    Log.d("RefreshRate", "找到最高刷新率: ${highestMode.refreshRate} Hz")
+                    // 直接设置为最高刷新率模式
+                    window.attributes = window.attributes.apply {
+                        preferredDisplayModeId = highestMode.modeId
+                        preferredRefreshRate = highestMode.refreshRate
+                    }
+                    
+                    // 确保应用使用最高帧率渲染
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        window.attributes.preferredRefreshRate = highestMode.refreshRate
+                    }
+                }
+            } else {
+                // 旧版Android使用简单直接的方式设置刷新率
+                @Suppress("DEPRECATION")
+                val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                @Suppress("DEPRECATION")
+                val display = windowManager.defaultDisplay
+                
+                // 获取最高的刷新率并直接设置
+                val refreshRate = display.refreshRate
+                Log.d("RefreshRate", "使用旧API设置刷新率: $refreshRate Hz")
+                window.attributes.preferredRefreshRate = refreshRate
+            }
             
+            // 强制应用GPU合成 - 在某些设备上可以提升性能
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+            )
         } catch (e: Exception) {
-            Log.e("RefreshRate", "设置高刷新率时出错: ${e.message}")
-            e.printStackTrace()
+            Log.e("RefreshRate", "设置高刷新率失败: ${e.message}")
         }
     }
 }
@@ -244,7 +214,7 @@ data class GameResult(
     val totalBuyIns: Int,
     val finalChips: Int,
     val netChange: Int,
-    val moneyChange: Int
+    val moneyChange: Float
 )
 
 // 新增历史记录数据类
@@ -278,15 +248,17 @@ class PokerCalculatorViewModel : ViewModel() {
     // 当前游戏ID，用于保存和加载
     private var currentGameId: String? = null
     
-    // 添加预设玩家姓名列表
-    val presetPlayerNames = listOf(
-        "张宸宇", "杨清源", "李航", "罗靖","罗靖的朋友", "周孜耕",
-        "罗春林", "马超", "谢剑宇", "李哲瀚", "代兴意","李浩博","崔垚硕"
-    )
+    // 添加预设玩家姓名列表状态流，替换原来的常量列表
+    private val _presetPlayerNames = MutableStateFlow<List<String>>(listOf(
+        "张宸宇", "杨清源", "李航", "罗靖", "周孜耕", 
+        "罗春林", "马超", "谢剑宇", "jhn", "代兴意","李浩博","崔垚硕"
+    ))
+    val presetPlayerNames: StateFlow<List<String>> = _presetPlayerNames.asStateFlow()
     
-    // 初始化，加载历史记录
+    // 初始化，加载历史记录和预设玩家
     fun initialize(context: Context) {
         loadGameHistories(context)
+        loadPresetPlayers(context)
     }
 
     fun addPlayer(name: String, isDealer: Boolean = false) {
@@ -296,10 +268,14 @@ class PokerCalculatorViewModel : ViewModel() {
     }
 
     fun batchAddPlayers(playerNames: List<String>, initialChips: Int, dealerIndex: Int = -1) {
+        // 如果已有玩家是庄家，则不再设置新的庄家
+        val existingDealerExists = _players.value.any { it.isDealer }
+        
         val newPlayers = playerNames.mapIndexed { index, name ->
             Player(
                 name = name,
-                isDealer = index == dealerIndex,
+                // 只有当没有现有庄家且dealerIndex有效时，才设置庄家
+                isDealer = !existingDealerExists && dealerIndex >= 0 && index == dealerIndex,
                 initialChips = initialChips,
                 currentChips = initialChips
             )
@@ -310,10 +286,14 @@ class PokerCalculatorViewModel : ViewModel() {
 
     // 添加一个带有每个玩家初始筹码的批量添加方法
     fun batchAddPlayersWithCustomChips(playerData: List<Pair<String, Int>>, dealerIndex: Int = -1) {
+        // 如果已有玩家是庄家，则不再设置新的庄家
+        val existingDealerExists = _players.value.any { it.isDealer }
+        
         val newPlayers = playerData.mapIndexed { index, (name, chips) ->
             Player(
                 name = name,
-                isDealer = index == dealerIndex,
+                // 只有当没有现有庄家且dealerIndex有效时，才设置庄家
+                isDealer = !existingDealerExists && dealerIndex >= 0 && index == dealerIndex,
                 initialChips = chips,
                 currentChips = chips
             )
@@ -421,7 +401,11 @@ class PokerCalculatorViewModel : ViewModel() {
             val totalBuyIns = player.buyIns.sumOf { it.amount }
             val initialTotal = player.initialChips + totalBuyIns
             val netChange = player.currentChips - initialTotal
-            val moneyChange = netChange / 10
+            // 使用浮点数除法并保留一位小数
+            val moneyChange = (netChange.toFloat() / 10f).let { 
+                // 四舍五入到一位小数
+                (Math.round(it * 10) / 10f)
+            }
 
             GameResult(
                 player = player,
@@ -445,11 +429,13 @@ class PokerCalculatorViewModel : ViewModel() {
         val dealer = results.find { it.player.isDealer }
         if (dealer != null) {
             val otherPlayers = results.filter { !it.player.isDealer }
-            val totalPlayerProfit = otherPlayers.sumOf { if (it.moneyChange > 0) it.moneyChange else 0 }
-            val totalPlayerLoss = otherPlayers.sumOf { if (it.moneyChange < 0) -it.moneyChange else 0 }
+            // 使用toDouble确保使用正确的sumOf重载版本
+            val totalPlayerProfit = otherPlayers.sumOf { if (it.moneyChange > 0) it.moneyChange.toDouble() else 0.0 }
+            val totalPlayerLoss = otherPlayers.sumOf { if (it.moneyChange < 0) (-it.moneyChange).toDouble() else 0.0 }
             val dealerShouldGet = totalPlayerLoss - totalPlayerProfit
             
-            _verificationResult.value = dealer.moneyChange == dealerShouldGet
+            // 由于浮点数比较可能有精度问题，使用近似相等进行比较
+            _verificationResult.value = Math.abs(dealer.moneyChange - dealerShouldGet.toFloat()) < 0.01f
         }
     }
 
@@ -553,6 +539,59 @@ class PokerCalculatorViewModel : ViewModel() {
             }
         }
     }
+    
+    // 加载预设玩家
+    private fun loadPresetPlayers(context: Context) {
+        val sharedPreferences = context.getSharedPreferences("PokerCalculator", Context.MODE_PRIVATE)
+        val presetPlayersJson = sharedPreferences.getString("preset_players", null)
+        
+        if (presetPlayersJson != null) {
+            try {
+                val type = object : TypeToken<List<String>>() {}.type
+                val presetPlayers = Gson().fromJson<List<String>>(presetPlayersJson, type)
+                if (presetPlayers.isNotEmpty()) {
+                    _presetPlayerNames.value = presetPlayers
+                }
+            } catch (e: Exception) {
+                // 如果解析失败，保留默认值
+            }
+        }
+    }
+    
+    // 保存预设玩家
+    fun savePresetPlayers(context: Context) {
+        val sharedPreferences = context.getSharedPreferences("PokerCalculator", Context.MODE_PRIVATE)
+        val presetPlayersJson = Gson().toJson(_presetPlayerNames.value)
+        
+        sharedPreferences.edit()
+            .putString("preset_players", presetPlayersJson)
+            .apply()
+    }
+    
+    // 添加预设玩家
+    fun addPresetPlayer(context: Context, playerName: String) {
+        if (playerName.isBlank() || _presetPlayerNames.value.contains(playerName)) {
+            return
+        }
+        
+        _presetPlayerNames.value = _presetPlayerNames.value + playerName
+        savePresetPlayers(context)
+    }
+    
+    // 删除预设玩家
+    fun removePresetPlayer(context: Context, playerName: String) {
+        _presetPlayerNames.value = _presetPlayerNames.value.filter { it != playerName }
+        savePresetPlayers(context)
+    }
+    
+    // 重新排序预设玩家
+    fun reorderPresetPlayers(context: Context, newOrder: List<String>) {
+        if (newOrder.containsAll(_presetPlayerNames.value) && 
+            newOrder.size == _presetPlayerNames.value.size) {
+            _presetPlayerNames.value = newOrder
+            savePresetPlayers(context)
+        }
+    }
 }
 
 @Composable
@@ -560,6 +599,9 @@ fun PokerCalculatorApp() {
     val navController = rememberNavController()
     val viewModel: PokerCalculatorViewModel = viewModel()
     val context = LocalContext.current
+    
+    // 获取当前导航状态，用于高性能动画
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
     
     // 初始化ViewModel，加载历史记录
     LaunchedEffect(Unit) {
@@ -569,13 +611,12 @@ fun PokerCalculatorApp() {
     NavHost(
         navController = navController, 
         startDestination = "splash",
-        // 使用优化的页面转场动画
+        // 使用高刷新率的导航动画
         enterTransition = { HighRefreshRateUtil.EnterTransition },
         exitTransition = { HighRefreshRateUtil.ExitTransition },
-        popEnterTransition = { HighRefreshRateUtil.EnterTransition },
-        popExitTransition = { HighRefreshRateUtil.ExitTransition }
+        popEnterTransition = { HighRefreshRateUtil.FastFadeIn },
+        popExitTransition = { HighRefreshRateUtil.FastFadeOut }
     ) {
-        // 保留原有的NavHost composable 定义...
         composable("splash") {
             SplashScreen(
                 navController = navController,
@@ -1059,7 +1100,7 @@ fun AddPlayerScreen(
     val dealerExists = players.any { it.isDealer }
     
     // 使用ViewModel中的预设玩家姓名列表
-    val presetNames = viewModel.presetPlayerNames
+    val presetNames = viewModel.presetPlayerNames.collectAsState().value
     
     // 下拉菜单状态
     var expanded by remember { mutableStateOf(false) }
@@ -1190,7 +1231,7 @@ fun PlayerDetailScreen(
     }
     
     // 使用ViewModel中的预设玩家姓名列表
-    val presetNames = viewModel.presetPlayerNames
+    val presetNames = viewModel.presetPlayerNames.collectAsState().value
     
     // 下拉菜单状态
     var expanded by remember { mutableStateOf(false) }
@@ -1228,7 +1269,8 @@ fun PlayerDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (isEditing && !gameEnded) {
@@ -1386,8 +1428,6 @@ fun PlayerDetailScreen(
                                         if (amount > 0) {
                                             viewModel.addBuyIn(player.id, amount)
                                             buyInAmount = ""
-                                            // 补码成功后自动返回玩家列表界面
-                                            navController.popBackStack()
                                         }
                                     }
                                 },
@@ -1408,7 +1448,7 @@ fun PlayerDetailScreen(
                         Text("设置最终筹码", style = MaterialTheme.typography.titleMedium)
                         Spacer(modifier = Modifier.height(8.dp))
                         
-                        // 添加直接设置最终筹码的输入框 - 修改为输入非零数字时自动删除前导的"0"
+                        // 添加直接设置最终筹码的输入框 - 已修改为默认值为0且自动应用变更
                         var finalChips by remember(player.id) { mutableStateOf("0") }
                         
                         OutlinedTextField(
@@ -1417,14 +1457,15 @@ fun PlayerDetailScreen(
                                 // 过滤非数字字符
                                 val filteredValue = newValue.filter { it.isDigit() }
                                 
-                                // 处理输入逻辑以删除前导零
+                                // 处理前导0的情况
                                 finalChips = when {
-                                    // 如果输入为空，则显示0
+                                    // 如果是空字符串，设为0
                                     filteredValue.isEmpty() -> "0"
-                                    // 如果输入以0开头且长度大于1，则去除前导0
-                                    filteredValue.startsWith("0") && filteredValue.length > 1 -> 
-                                        filteredValue.replaceFirst("^0+".toRegex(), "")
-                                    // 其他情况直接使用过滤后的值
+                                    // 如果当前值是"0"且输入新字符，则只保留新输入的内容（删除前导0）
+                                    finalChips == "0" && filteredValue.length > 1 -> filteredValue.substring(1)
+                                    // 如果输入的新值以0开头但不是单独的0，则去除前导0
+                                    filteredValue != "0" && filteredValue.startsWith("0") -> filteredValue.replaceFirst("^0+".toRegex(), "")
+                                    // 其他情况保持原值
                                     else -> filteredValue
                                 }
                                 
@@ -1673,7 +1714,7 @@ fun GameEndScreen(
                         
                         Spacer(modifier = Modifier.height(8.dp))
                         
-                        // 添加直接设置最终筹码的输入框 - 修改为输入非零数字时自动删除前导的"0"
+                        // 添加直接设置最终筹码的输入框 - 已修改为默认值为0且自动应用变更
                         var finalChips by remember(player.id) { mutableStateOf("0") }
                         
                         OutlinedTextField(
@@ -1682,14 +1723,15 @@ fun GameEndScreen(
                                 // 过滤非数字字符
                                 val filteredValue = newValue.filter { it.isDigit() }
                                 
-                                // 处理输入逻辑以删除前导零
+                                // 处理前导0的情况
                                 finalChips = when {
-                                    // 如果输入为空，则显示0
+                                    // 如果是空字符串，设为0
                                     filteredValue.isEmpty() -> "0"
-                                    // 如果输入以0开头且长度大于1，则去除前导0
-                                    filteredValue.startsWith("0") && filteredValue.length > 1 -> 
-                                        filteredValue.replaceFirst("^0+".toRegex(), "")
-                                    // 其他情况直接使用过滤后的值
+                                    // 如果当前值是"0"且输入新字符，则只保留新输入的内容（删除前导0）
+                                    finalChips == "0" && filteredValue.length > 1 -> filteredValue.substring(1)
+                                    // 如果输入的新值以0开头但不是单独的0，则去除前导0
+                                    filteredValue != "0" && filteredValue.startsWith("0") -> filteredValue.replaceFirst("^0+".toRegex(), "")
+                                    // 其他情况保持原值
                                     else -> filteredValue
                                 }
                                 
@@ -1935,9 +1977,9 @@ private fun copyResultsToClipboard(context: Context, results: List<GameResult>) 
         stringBuilder.append("筹码变化: ${result.netChange}\n")
         
         val resultText = if (result.moneyChange > 0) {
-            "盈利: ¥${result.moneyChange}"
+            "盈利: ¥${String.format("%.1f", result.moneyChange)}"
         } else if (result.moneyChange < 0) {
-            "亏损: ¥${-result.moneyChange}"
+            "亏损: ¥${String.format("%.1f", -result.moneyChange)}"
         } else {
             "收支平衡"
         }
@@ -1945,9 +1987,9 @@ private fun copyResultsToClipboard(context: Context, results: List<GameResult>) 
         
         if (!result.player.isDealer) {
             val transferText = if (result.moneyChange > 0) {
-                "庄家应付: ¥${result.moneyChange}"
+                "庄家应付: ¥${String.format("%.1f", result.moneyChange)}"
             } else if (result.moneyChange < 0) {
-                "应付庄家: ¥${-result.moneyChange}"
+                "应付庄家: ¥${String.format("%.1f", -result.moneyChange)}"
             } else {
                 "无需转账"
             }
@@ -1996,11 +2038,11 @@ fun ResultDetailCard(result: GameResult, isDealer: Boolean) {
                 )
                 
                 val moneyText = if (result.moneyChange > 0) {
-                    "+${result.moneyChange}"
+                    "+${String.format("%.1f", result.moneyChange)}"
                 } else if (result.moneyChange < 0) {
-                    "${result.moneyChange}"
+                    "${String.format("%.1f", result.moneyChange)}"
                 } else {
-                    "0"
+                    "0.0"
                 }
                 
                 val textColor = when {
@@ -2033,9 +2075,9 @@ fun ResultDetailCard(result: GameResult, isDealer: Boolean) {
                 Column(horizontalAlignment = Alignment.End) {
                     if (!isDealer) {
                         val transferText = if (result.moneyChange > 0) {
-                            "庄家应付: ¥${result.moneyChange}"
+                            "庄家应付: ¥${String.format("%.1f", result.moneyChange)}"
                         } else if (result.moneyChange < 0) {
-                            "应付庄家: ¥${-result.moneyChange}"
+                            "应付庄家: ¥${String.format("%.1f", -result.moneyChange)}"
                         } else {
                             "无需转账"
                         }
@@ -2057,6 +2099,147 @@ fun ResultDetailCard(result: GameResult, isDealer: Boolean) {
     }
 }
 
+@Composable
+fun GameLogCard(results: List<GameResult>) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth()
+        ) {
+            val dateFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            
+            results.forEach { result ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "${result.player.name} ${if (result.player.isDealer) "(庄家)" else ""}",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text("初始筹码: ${result.initialChips}")
+                    
+                    if (result.player.buyIns.isNotEmpty()) {
+                        Text("补码记录:")
+                        result.player.buyIns.forEachIndexed { index, buyIn ->
+                            Text("  ${index + 1}. ${dateFormatter.format(Date(buyIn.timestamp))}: +${buyIn.amount}")
+                        }
+                    }
+                    
+                    Text("初始筹码 + 补码总额: ${result.initialChips + result.totalBuyIns}")
+                    Text("最终筹码: ${result.finalChips}")
+                    Text("筹码变化: ${result.netChange}")
+                    
+                    val resultText = if (result.moneyChange > 0) {
+                        "盈利: ¥${String.format("%.1f", result.moneyChange)}"
+                    } else if (result.moneyChange < 0) {
+                        "亏损: ¥${String.format("%.1f", -result.moneyChange)}"
+                    } else {
+                        "收支平衡"
+                    }
+                    
+                    Text(resultText)
+                    
+                    if (!result.player.isDealer) {
+                        val transferText = if (result.moneyChange > 0) {
+                            "庄家应付: ¥${String.format("%.1f", result.moneyChange)}"
+                        } else if (result.moneyChange < 0) {
+                            "应付庄家: ¥${String.format("%.1f", -result.moneyChange)}"
+                        } else {
+                            "无需转账"
+                        }
+                        
+                        Text(transferText)
+                    }
+                }
+                
+                if (result != results.last()) {
+                    Divider()
+                }
+            }
+        }
+    }
+}
+
+private fun copyGameLogToClipboard(context: Context, results: List<GameResult>) {
+    val dateFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+    
+    val stringBuilder = StringBuilder("德州扑克游戏日志\n\n")
+    stringBuilder.append("游戏时间: ${dateFormatter.format(Date())}\n\n")
+    
+    // 添加总计信息
+    val initialChipsTotal = results.sumOf { it.initialChips }
+    val buyInsTotal = results.sumOf { it.totalBuyIns }
+    val finalChipsTotal = results.sumOf { it.finalChips }
+    
+    stringBuilder.append("【游戏总计】\n")
+    stringBuilder.append("初始筹码总数: $initialChipsTotal\n")
+    stringBuilder.append("补码总额: $buyInsTotal\n")
+    stringBuilder.append("初始筹码 + 补码总额: ${initialChipsTotal + buyInsTotal}\n")
+    stringBuilder.append("最终筹码总数: $finalChipsTotal\n")
+    if (initialChipsTotal + buyInsTotal == finalChipsTotal) {
+        stringBuilder.append("筹码总数平衡\n")
+    } else {
+        stringBuilder.append("筹码总数不平衡，差额: ${finalChipsTotal - (initialChipsTotal + buyInsTotal)}\n")
+    }
+    stringBuilder.append("\n")
+    
+    stringBuilder.append("【玩家详情】\n")
+    results.forEach { result ->
+        stringBuilder.append("${result.player.name} ${if (result.player.isDealer) "(庄家)" else ""}\n")
+        stringBuilder.append("初始筹码: ${result.initialChips}\n")
+        
+        if (result.player.buyIns.isNotEmpty()) {
+            stringBuilder.append("补码记录:\n")
+            result.player.buyIns.forEachIndexed { index, buyIn ->
+                stringBuilder.append("  ${index + 1}. ${dateFormatter.format(Date(buyIn.timestamp))}: +${buyIn.amount}\n")
+            }
+            stringBuilder.append("补码总额: ${result.totalBuyIns}\n")
+        } else {
+            stringBuilder.append("无补码记录\n")
+        }
+        
+        stringBuilder.append("初始筹码 + 补码总额: ${result.initialChips + result.totalBuyIns}\n")
+        stringBuilder.append("最终筹码: ${result.finalChips}\n")
+        stringBuilder.append("筹码变化: ${result.netChange}\n")
+        
+        val resultText = if (result.moneyChange > 0) {
+            "盈利: ¥${result.moneyChange}"
+        } else if (result.moneyChange < 0) {
+            "亏损: ¥${-result.moneyChange}"
+        } else {
+            "收支平衡"
+        }
+        
+        stringBuilder.append("$resultText\n")
+        
+        if (!result.player.isDealer) {
+            val transferText = if (result.moneyChange > 0) {
+                "庄家应付: ¥${result.moneyChange}"
+            } else if (result.moneyChange < 0) {
+                "应付庄家: ¥${-result.moneyChange}"
+            } else {
+                "无需转账"
+            }
+            
+            stringBuilder.append("$transferText\n")
+        }
+        stringBuilder.append("\n")
+    }
+    
+    val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val clipData = ClipData.newPlainText("德州扑克游戏日志", stringBuilder.toString())
+    clipboardManager.setPrimaryClip(clipData)
+    
+    Toast.makeText(context, "游戏日志已复制到剪贴板", Toast.LENGTH_SHORT).show()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BatchAddPlayersScreen(
@@ -2064,20 +2247,33 @@ fun BatchAddPlayersScreen(
     viewModel: PokerCalculatorViewModel
 ) {
     // 用于跟踪选中的玩家
-    val presetNames = viewModel.presetPlayerNames
-    val selectedPlayers = remember { mutableStateListOf<String>() }
+    val presetNames = viewModel.presetPlayerNames.collectAsState().value
+    
+    // 改用Map存储每个玩家是否被选中，而不是用List，避免顺序依赖于点击顺序
+    val selectedPlayerMap = remember { 
+        mutableStateMapOf<String, Boolean>().apply {
+            presetNames.forEach { this[it] = false }
+        }
+    }
     
     // 用于存储每个玩家的筹码数量
     val playerChips = remember { mutableStateMapOf<String, String>() }
     
     // 默认统一筹码值和庄家选择
     var defaultChips by remember { mutableStateOf("") }
-    var selectedDealerIndex by remember { mutableStateOf(-1) }
+    var selectedDealerName by remember { mutableStateOf<String?>(null) }
     var useUniformChips by remember { mutableStateOf(true) }
     
     // 当前玩家列表中是否已有庄家
     val players by viewModel.players.collectAsState()
     val dealerExists = players.any { it.isDealer }
+    
+    // 管理常用玩家对话框状态
+    var showManagePlayersDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // 计算已选玩家数量
+    val selectedCount = selectedPlayerMap.count { it.value }
 
     Scaffold(
         topBar = {
@@ -2086,6 +2282,12 @@ fun BatchAddPlayersScreen(
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    // 添加管理常用玩家按钮
+                    IconButton(onClick = { showManagePlayersDialog = true }) {
+                        Icon(Icons.Default.Edit, contentDescription = "管理常用玩家")
                     }
                 }
             )
@@ -2144,8 +2346,10 @@ fun BatchAddPlayersScreen(
                                 defaultChips = filtered
                                 
                                 // 同步更新所有选中玩家的筹码值
-                                selectedPlayers.forEach { playerName ->
-                                    playerChips[playerName] = filtered
+                                presetNames.forEach { name ->
+                                    if (selectedPlayerMap[name] == true) {
+                                        playerChips[name] = filtered
+                                    }
                                 }
                             },
                             label = { Text("统一初始筹码") },
@@ -2175,10 +2379,10 @@ fun BatchAddPlayersScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Checkbox(
-                                    checked = selectedPlayers.contains(name),
+                                    checked = selectedPlayerMap[name] == true,
                                     onCheckedChange = { isChecked ->
+                                        selectedPlayerMap[name] = isChecked
                                         if (isChecked) {
-                                            selectedPlayers.add(name)
                                             // 如果是统一筹码模式，设置为默认值
                                             if (useUniformChips && defaultChips.isNotEmpty()) {
                                                 playerChips[name] = defaultChips
@@ -2187,9 +2391,9 @@ fun BatchAddPlayersScreen(
                                                 playerChips[name] = ""
                                             }
                                         } else {
-                                            selectedPlayers.remove(name)
-                                            if (selectedDealerIndex == index) {
-                                                selectedDealerIndex = -1
+                                            // 如果取消选中庄家，清除庄家设置
+                                            if (selectedDealerName == name) {
+                                                selectedDealerName = null
                                             }
                                         }
                                     }
@@ -2198,16 +2402,16 @@ fun BatchAddPlayersScreen(
                                 Text(name, modifier = Modifier.weight(1f))
                                 
                                 // 只有当玩家被选中且没有已存在的庄家时，才能设为庄家
-                                if (selectedPlayers.contains(name)) {
+                                if (selectedPlayerMap[name] == true) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text("庄家")
                                         
                                         Checkbox(
-                                            checked = selectedDealerIndex == index,
+                                            checked = selectedDealerName == name,
                                             onCheckedChange = { isChecked ->
-                                                selectedDealerIndex = if (isChecked) index else -1
+                                                selectedDealerName = if (isChecked) name else null
                                             },
                                             enabled = !dealerExists
                                         )
@@ -2216,7 +2420,7 @@ fun BatchAddPlayersScreen(
                             }
                             
                             // 如果玩家被选中且是个性化筹码模式，显示筹码输入框
-                            if (selectedPlayers.contains(name) && !useUniformChips) {
+                            if (selectedPlayerMap[name] == true && !useUniformChips) {
                                 OutlinedTextField(
                                     value = playerChips[name] ?: "",
                                     onValueChange = { value ->
@@ -2249,51 +2453,173 @@ fun BatchAddPlayersScreen(
             // 添加按钮
             Button(
                 onClick = {
-                    // 按照预设列表的顺序对选中的玩家进行排序
-                    val orderedPlayers = presetNames.filter { it in selectedPlayers }
+                    // 按照原列表顺序收集选中的玩家
+                    val selectedPlayers = presetNames.filter { selectedPlayerMap[it] == true }
                     
-                    // 调整庄家索引（如果有）
-                    var dealerIndexInOrdered = -1
-                    if (selectedDealerIndex >= 0 && !dealerExists) {
-                        val dealerName = presetNames[selectedDealerIndex]
-                        dealerIndexInOrdered = orderedPlayers.indexOf(dealerName)
+                    // 找出庄家在选中玩家列表中的位置
+                    val dealerIndexInSelected = if (dealerExists || selectedDealerName == null) {
+                        -1 // 不设置庄家
+                    } else {
+                        selectedPlayers.indexOf(selectedDealerName)
                     }
                     
                     // 根据不同的筹码设置模式进行处理
                     if (useUniformChips) {
                         // 统一筹码模式
                         val chips = defaultChips.toIntOrNull() ?: 0
-                        if (orderedPlayers.isNotEmpty() && chips > 0) {
-                            viewModel.batchAddPlayers(orderedPlayers, chips, dealerIndexInOrdered)
+                        if (selectedPlayers.isNotEmpty() && chips > 0) {
+                            viewModel.batchAddPlayers(selectedPlayers, chips, dealerIndexInSelected)
                             navController.popBackStack()
                         }
                     } else {
                         // 个性化筹码模式
-                        // 收集所有选中的玩家和他们的筹码值，保持预设列表的顺序
-                        val playerData = orderedPlayers.mapNotNull { name ->
+                        // 收集所有选中的玩家和他们的筹码值，保持原列表顺序
+                        val playerData = selectedPlayers.mapNotNull { name ->
                             val chips = playerChips[name]?.toIntOrNull() ?: 0
                             if (chips > 0) Pair(name, chips) else null
                         }
                         
                         if (playerData.isNotEmpty()) {
-                            viewModel.batchAddPlayersWithCustomChips(playerData, dealerIndexInOrdered)
+                            viewModel.batchAddPlayersWithCustomChips(playerData, dealerIndexInSelected)
                             navController.popBackStack()
                         }
                     }
                 },
                 enabled = if (useUniformChips) {
-                    selectedPlayers.isNotEmpty() && defaultChips.isNotBlank() && (defaultChips.toIntOrNull() ?: 0) > 0
+                    selectedCount > 0 && defaultChips.isNotBlank() && (defaultChips.toIntOrNull() ?: 0) > 0
                 } else {
-                    selectedPlayers.isNotEmpty() && selectedPlayers.all { name -> 
-                        (playerChips[name]?.toIntOrNull() ?: 0) > 0 
+                    selectedCount > 0 && presetNames.all { name -> 
+                        selectedPlayerMap[name] != true || (playerChips[name]?.toIntOrNull() ?: 0) > 0 
                     }
                 },
                 modifier = Modifier.align(Alignment.End)
             ) {
-                Text("批量添加 (${selectedPlayers.size})")
+                Text("批量添加 ($selectedCount)")
+            }
+
+            // 显示管理常用玩家对话框
+            if (showManagePlayersDialog) {
+                ManagePresetPlayersDialog(
+                    presetPlayers = presetNames,
+                    onDismiss = { showManagePlayersDialog = false },
+                    onAddPlayer = { newName -> 
+                        viewModel.addPresetPlayer(context, newName) 
+                        // 为新添加的玩家初始化状态
+                        selectedPlayerMap[newName] = false
+                    },
+                    onRemovePlayer = { name -> 
+                        // 如果要删除的玩家已被选中，更新状态
+                        if (selectedPlayerMap[name] == true) {
+                            playerChips.remove(name)
+                            // 处理庄家设置
+                            if (selectedDealerName == name) {
+                                selectedDealerName = null
+                            }
+                        }
+                        // 从选中Map中移除该玩家
+                        selectedPlayerMap.remove(name)
+                        viewModel.removePresetPlayer(context, name) 
+                    }
+                )
             }
         }
     }
+}
+
+@Composable
+fun ManagePresetPlayersDialog(
+    presetPlayers: List<String>,
+    onDismiss: () -> Unit,
+    onAddPlayer: (String) -> Unit,
+    onRemovePlayer: (String) -> Unit
+) {
+    var newPlayerName by remember { mutableStateOf("") }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("管理常用玩家") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // 添加新玩家的输入框和按钮
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = newPlayerName,
+                        onValueChange = { newPlayerName = it },
+                        label = { Text("新玩家名称") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    
+                    Spacer(modifier = Modifier.width(8.dp))
+                    
+                    IconButton(
+                        onClick = {
+                            if (newPlayerName.isNotBlank() && !presetPlayers.contains(newPlayerName)) {
+                                onAddPlayer(newPlayerName)
+                                newPlayerName = ""
+                            }
+                        },
+                        enabled = newPlayerName.isNotBlank() && !presetPlayers.contains(newPlayerName)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "添加玩家")
+                    }
+                }
+                
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                
+                // 现有玩家列表
+                Text("当前玩家列表", style = MaterialTheme.typography.titleMedium)
+                
+                if (presetPlayers.isEmpty()) {
+                    Text(
+                        "暂无常用玩家，请添加",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    presetPlayers.forEach { name ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = name,
+                                modifier = Modifier.weight(1f)
+                            )
+                            
+                            IconButton(
+                                onClick = { onRemovePlayer(name) }
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "删除玩家",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                        
+                        Divider()
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss
+            ) {
+                Text("完成")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2306,7 +2632,6 @@ fun HistoryScreen(
     val context = LocalContext.current
     var showDeleteConfirmDialog by remember { mutableStateOf<String?>(null) }
     val dateFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-    val scrollState = rememberScrollState()
 
     Scaffold(
         topBar = {
@@ -2335,7 +2660,7 @@ fun HistoryScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .padding(16.dp)
-                    .verticalScroll(scrollState),
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
@@ -2364,9 +2689,6 @@ fun HistoryScreen(
                         onDelete = { showDeleteConfirmDialog = history.id }
                     )
                 }
-                
-                // 添加底部间距以确保在有滚动时看到所有内容
-                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
@@ -2472,12 +2794,4 @@ fun HistoryListItem(
                 color = statusColor
             )
             
-            Button(
-                onClick = onRestore,
-                modifier = Modifier.align(Alignment.End)
-            ) {
-                Text("恢复此游戏")
-            }
-        }
-    }
-}
+                                    Button(                onClick = onRestore,                modifier = Modifier.align(Alignment.End)            ) {                Text("恢复此游戏")            }        }    }}
