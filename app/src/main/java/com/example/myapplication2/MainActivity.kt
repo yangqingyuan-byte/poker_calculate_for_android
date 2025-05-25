@@ -677,6 +677,13 @@ fun PokerCalculatorApp() {
                 viewModel = viewModel
             )
         }
+        
+        composable("manage_preset_players") {
+            ManagePresetPlayersScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
     }
 }
 
@@ -849,6 +856,11 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
+                    }
+                    
+                    // 添加管理预设玩家按钮
+                    IconButton(onClick = { navController.navigate("manage_preset_players") }) {
+                        Icon(Icons.Default.Edit, contentDescription = "管理常用玩家")
                     }
                     
                     // 添加历史记录按钮
@@ -1428,6 +1440,8 @@ fun PlayerDetailScreen(
                                         if (amount > 0) {
                                             viewModel.addBuyIn(player.id, amount)
                                             buyInAmount = ""
+                                            // 补码成功后自动返回玩家列表界面
+                                            navController.popBackStack()
                                         }
                                     }
                                 },
@@ -1921,6 +1935,41 @@ fun ResultsScreen(
                     }
                 }
                 
+                // 更换庄家功能
+                var showChangeDealerDialog by remember { mutableStateOf(false) }
+                
+                Card(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("当前庄家: ${dealer?.player?.name ?: "无"}", 
+                                     style = MaterialTheme.typography.titleMedium)
+                                if (verificationResult != true) {
+                                    Text("如果结果验证错误，可以尝试更换庄家", 
+                                         style = MaterialTheme.typography.bodySmall,
+                                         color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                            
+                            Button(
+                                onClick = { showChangeDealerDialog = true }
+                            ) {
+                                Text("更换庄家")
+                            }
+                        }
+                    }
+                }
+                
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1933,6 +1982,59 @@ fun ResultsScreen(
                     ) {
                         Text("复制结果")
                     }
+                }
+                
+                // 更换庄家对话框
+                if (showChangeDealerDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showChangeDealerDialog = false },
+                        title = { Text("选择新庄家") },
+                        text = {
+                            Column {
+                                Text("请选择新的庄家：")
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                results.forEach { result ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                viewModel.setDealer(result.player.id)
+                                                viewModel.calculateResults()
+                                                showChangeDealerDialog = false
+                                            }
+                                            .padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = result.player.name,
+                                            style = if (result.player.isDealer) 
+                                                MaterialTheme.typography.titleMedium 
+                                            else 
+                                                MaterialTheme.typography.bodyMedium,
+                                            color = if (result.player.isDealer) 
+                                                MaterialTheme.colorScheme.primary 
+                                            else 
+                                                MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (result.player.isDealer) {
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                "(当前庄家)",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            Button(onClick = { showChangeDealerDialog = false }) {
+                                Text("取消")
+                            }
+                        }
+                    )
                 }
                 
                 // 庄家结果
@@ -1973,6 +2075,7 @@ private fun copyResultsToClipboard(context: Context, results: List<GameResult>) 
         stringBuilder.append("${result.player.name} ${if (result.player.isDealer) "(庄家)" else ""}\n")
         stringBuilder.append("初始筹码: ${result.initialChips}\n")
         stringBuilder.append("补码总额: ${result.totalBuyIns}\n")
+        stringBuilder.append("筹码总额: ${result.initialChips + result.totalBuyIns}\n")
         stringBuilder.append("最终筹码: ${result.finalChips}\n")
         stringBuilder.append("筹码变化: ${result.netChange}\n")
         
@@ -2067,7 +2170,7 @@ fun ResultDetailCard(result: GameResult, isDealer: Boolean) {
                 Column {
                     Text("初始筹码: ${result.initialChips}")
                     Text("补码总额: ${result.totalBuyIns}")
-                    Text("初始筹码 + 补码总额: ${result.initialChips + result.totalBuyIns}")
+                    Text("筹码总额: ${result.initialChips + result.totalBuyIns}")
                     Text("最终筹码: ${result.finalChips}")
                     Text("筹码变化: ${result.netChange}")
                 }
@@ -2132,7 +2235,7 @@ fun GameLogCard(results: List<GameResult>) {
                         }
                     }
                     
-                    Text("初始筹码 + 补码总额: ${result.initialChips + result.totalBuyIns}")
+                    Text("筹码总额: ${result.initialChips + result.totalBuyIns}")
                     Text("最终筹码: ${result.finalChips}")
                     Text("筹码变化: ${result.netChange}")
                     
@@ -2181,7 +2284,7 @@ private fun copyGameLogToClipboard(context: Context, results: List<GameResult>) 
     stringBuilder.append("【游戏总计】\n")
     stringBuilder.append("初始筹码总数: $initialChipsTotal\n")
     stringBuilder.append("补码总额: $buyInsTotal\n")
-    stringBuilder.append("初始筹码 + 补码总额: ${initialChipsTotal + buyInsTotal}\n")
+    stringBuilder.append("筹码总额: ${initialChipsTotal + buyInsTotal}\n")
     stringBuilder.append("最终筹码总数: $finalChipsTotal\n")
     if (initialChipsTotal + buyInsTotal == finalChipsTotal) {
         stringBuilder.append("筹码总数平衡\n")
@@ -2205,7 +2308,7 @@ private fun copyGameLogToClipboard(context: Context, results: List<GameResult>) 
             stringBuilder.append("无补码记录\n")
         }
         
-        stringBuilder.append("初始筹码 + 补码总额: ${result.initialChips + result.totalBuyIns}\n")
+        stringBuilder.append("筹码总额: ${result.initialChips + result.totalBuyIns}\n")
         stringBuilder.append("最终筹码: ${result.finalChips}\n")
         stringBuilder.append("筹码变化: ${result.netChange}\n")
         
@@ -2523,6 +2626,202 @@ fun BatchAddPlayersScreen(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ManagePresetPlayersScreen(
+    navController: NavHostController,
+    viewModel: PokerCalculatorViewModel
+) {
+    val presetPlayers by viewModel.presetPlayerNames.collectAsState()
+    val context = LocalContext.current
+    var newPlayerName by remember { mutableStateOf("") }
+    var showDeleteConfirmDialog by remember { mutableStateOf<String?>(null) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("管理常用玩家") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 添加新玩家卡片
+            Card {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("添加新的常用玩家", style = MaterialTheme.typography.titleMedium)
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = newPlayerName,
+                            onValueChange = { newPlayerName = it },
+                            label = { Text("玩家名称") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        
+                        Button(
+                            onClick = {
+                                if (newPlayerName.isNotBlank() && !presetPlayers.contains(newPlayerName)) {
+                                    viewModel.addPresetPlayer(context, newPlayerName)
+                                    newPlayerName = ""
+                                }
+                            },
+                            enabled = newPlayerName.isNotBlank() && !presetPlayers.contains(newPlayerName)
+                        ) {
+                            Text("添加")
+                        }
+                    }
+                    
+                    if (newPlayerName.isNotBlank() && presetPlayers.contains(newPlayerName)) {
+                        Text(
+                            "玩家名称已存在",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+            
+            // 当前玩家列表卡片
+            Card {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("当前常用玩家", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "共 ${presetPlayers.size} 人",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    if (presetPlayers.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "暂无常用玩家，请添加",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        presetPlayers.forEachIndexed { index, name ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${index + 1}. $name",
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                
+                                IconButton(
+                                    onClick = { showDeleteConfirmDialog = name }
+                                ) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "删除玩家",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                            
+                            if (index < presetPlayers.size - 1) {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 操作说明卡片
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text("使用说明", style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("• 在这里添加的玩家会出现在添加玩家和批量添加玩家的下拉列表中")
+                    Text("• 删除的玩家将从下拉列表中移除，但不影响已添加到游戏中的玩家")
+                    Text("• 常用玩家列表会自动保存")
+                }
+            }
+        }
+    }
+    
+    // 删除确认对话框
+    if (showDeleteConfirmDialog != null) {
+        val playerName = showDeleteConfirmDialog ?: ""
+        
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = null },
+            title = { Text("确认删除") },
+            text = { Text("确定要删除常用玩家 \"$playerName\" 吗？") },
+            confirmButton = {
+                Button(
+                    onClick = { 
+                        viewModel.removePresetPlayer(context, playerName)
+                        showDeleteConfirmDialog = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showDeleteConfirmDialog = null }
+                ) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 
