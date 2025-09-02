@@ -250,8 +250,8 @@ class PokerCalculatorViewModel : ViewModel() {
     
     // 添加预设玩家姓名列表状态流，替换原来的常量列表
     private val _presetPlayerNames = MutableStateFlow<List<String>>(listOf(
-        "张宸宇", "杨清源", "李航", "罗靖", "周孜耕", 
-        "罗春林", "马超", "谢剑宇", "jhn", "代兴意","李浩博","崔垚硕"
+        "张宸宇", "杨清源", "李航", "魏俊杰", "周孜耕",
+        "陈鹏", "马超", "谢剑宇", "张世荣", "田元鹏","李浩博","崔垚硕"
     ))
     val presetPlayerNames: StateFlow<List<String>> = _presetPlayerNames.asStateFlow()
     
@@ -391,9 +391,16 @@ class PokerCalculatorViewModel : ViewModel() {
         saveCurrentGameState(null)
     }
 
-    fun endGame() {
+    fun endGame(): Boolean {
+        // 检查是否有庄家
+        val dealerExists = _players.value.any { it.isDealer }
+        if (!dealerExists) {
+            return false // 没有庄家，无法结束游戏
+        }
+        
         _gameEnded.value = true
         saveCurrentGameState(null)
+        return true // 成功结束游戏
     }
 
     fun calculateResults() {
@@ -869,11 +876,17 @@ fun HomeScreen(
                     }
                     
                     if (players.isNotEmpty() && !gameEnded) {
+                        val dealerExists = players.any { it.isDealer }
                         Button(
                             onClick = {
-                                viewModel.endGame()
-                                navController.navigate("game_end")
-                            }
+                                val success = viewModel.endGame()
+                                if (success) {
+                                    navController.navigate("game_end")
+                                } else {
+                                    Toast.makeText(context, "请先指定一位玩家为庄家才能结束游戏", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            enabled = dealerExists
                         ) {
                             Text("游戏结束")
                         }
@@ -959,6 +972,39 @@ fun HomeScreen(
                         player = player,
                         onClick = { navController.navigate("player_detail/${player.id}") }
                     )
+                }
+                
+                // 检查是否有庄家，如果没有则显示提示
+                val dealerExists = players.any { it.isDealer }
+                if (!dealerExists && players.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "提示",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "请先指定一位玩家为庄家才能结束游戏",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 }
                 
                 // 添加显示所有补码记录的按钮
@@ -1448,6 +1494,27 @@ fun PlayerDetailScreen(
                                 enabled = buyInAmount.isNotBlank() && (buyInAmount.toIntOrNull() ?: 0) > 0
                             ) {
                                 Text("补码")
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // 快捷补码选项
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf(150, 200, 300).forEach { quick ->
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.addBuyIn(player.id, quick)
+                                        // 补码成功后自动返回玩家列表界面
+                                        navController.popBackStack()
+                                    }
+                                ) {
+                                    Text(text = "+$quick")
+                                }
                             }
                         }
                     }
