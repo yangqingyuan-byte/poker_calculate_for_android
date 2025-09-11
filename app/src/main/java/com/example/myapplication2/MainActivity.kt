@@ -1530,7 +1530,7 @@ fun PlayerDetailScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         
                         // 添加直接设置最终筹码的输入框 - 已修改为默认值为0且自动应用变更
-                        var finalChips by remember(player.id) { mutableStateOf("0") }
+                        var finalChips by remember(player.id) { mutableStateOf("") }
                         
                         OutlinedTextField(
                             value = finalChips,
@@ -1795,28 +1795,17 @@ fun GameEndScreen(
                         
                         Spacer(modifier = Modifier.height(8.dp))
                         
-                        // 添加直接设置最终筹码的输入框 - 已修改为默认值为0且自动应用变更
-                        var finalChips by remember(player.id) { mutableStateOf("0") }
+                        // 添加直接设置最终筹码的输入框 - 默认留空以优化输入体验
+                        var finalChips by remember(player.id) { mutableStateOf("") }
                         
                         OutlinedTextField(
                             value = finalChips,
                             onValueChange = { newValue ->
-                                // 过滤非数字字符
+                                // 仅保留数字，允许为空字符串
                                 val filteredValue = newValue.filter { it.isDigit() }
-                                
-                                // 处理前导0的情况
-                                finalChips = when {
-                                    // 如果是空字符串，设为0
-                                    filteredValue.isEmpty() -> "0"
-                                    // 如果当前值是"0"且输入新字符，则只保留新输入的内容（删除前导0）
-                                    finalChips == "0" && filteredValue.length > 1 -> filteredValue.substring(1)
-                                    // 如果输入的新值以0开头但不是单独的0，则去除前导0
-                                    filteredValue != "0" && filteredValue.startsWith("0") -> filteredValue.replaceFirst("^0+".toRegex(), "")
-                                    // 其他情况保持原值
-                                    else -> filteredValue
-                                }
-                                
-                                // 更新玩家的最终筹码
+                                // 去掉多余前导0，但保留空字符串
+                                finalChips = if (filteredValue.isEmpty()) "" else filteredValue.replaceFirst("^0+".toRegex(), "").ifEmpty { "0" }
+                                // 更新玩家的最终筹码（空视为0）
                                 val chips = finalChips.toIntOrNull() ?: 0
                                 viewModel.setFinalChips(player.id, chips)
                             },
@@ -2602,6 +2591,22 @@ fun BatchAddPlayersScreen(
                                         .padding(start = 32.dp, bottom = 8.dp),
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                                 )
+
+                                // 个性化筹码模式下的快捷选择
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 32.dp, bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    listOf(200, 300, 500).forEach { quick ->
+                                        OutlinedButton(
+                                            onClick = { playerChips[name] = quick.toString() }
+                                        ) {
+                                            Text(text = "+$quick")
+                                        }
+                                    }
+                                }
                             }
                             
                             if (index < presetNames.size - 1) {
@@ -2620,6 +2625,9 @@ fun BatchAddPlayersScreen(
                 }
             }
             
+            // 预先计算已选玩家列表，供启用条件与点击逻辑共同使用
+            val selectedPlayers = presetNames.filter { selectedPlayerMap[it] == true }
+
             // 添加按钮
             Button(
                 onClick = {
@@ -2658,9 +2666,7 @@ fun BatchAddPlayersScreen(
                 enabled = if (useUniformChips) {
                     selectedCount > 0 && defaultChips.isNotBlank() && (defaultChips.toIntOrNull() ?: 0) > 0
                 } else {
-                    selectedCount > 0 && presetNames.all { name -> 
-                        selectedPlayerMap[name] != true || (playerChips[name]?.toIntOrNull() ?: 0) > 0 
-                    }
+                    selectedCount > 0 && selectedPlayers.all { name -> (playerChips[name]?.toIntOrNull() ?: 0) > 0 }
                 },
                 modifier = Modifier.align(Alignment.End)
             ) {
